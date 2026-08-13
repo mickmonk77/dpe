@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DayZ Object Extractor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --bg-deep:#0d1210;
+    --panel:#141a17;
+    --panel-2:#1b221d;
+    --border:#2a332c;
+    --amber:#c9a24b;
+    --amber-dim:#8a713a;
+    --olive:#6b8f5e;
+    --text:#d8ddd4;
+    --text-dim:#8a9388;
+    --mono:'IBM Plex Mono','SF Mono',Consolas,monospace;
+    --sans:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;background:var(--bg-deep);color:var(--text);font-family:var(--sans);}
+  #app{display:flex;height:100vh;width:100vw;}
+
+  #panel{
+    width:320px;min-width:320px;
+    background:var(--panel);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;
+    overflow-y:auto;
+  }
+  #panel h1{
+    font-size:14px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--amber);margin:0;padding:18px 18px 4px;
+    font-weight:600;
+  }
+  #panel .sub{
+    padding:0 18px 16px;color:var(--text-dim);font-size:12px;
+    border-bottom:1px solid var(--border);
+  }
+  .section{padding:16px 18px;border-bottom:1px solid var(--border);}
+  .section h2{
+    font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--olive);margin:0 0 10px;font-weight:600;
+  }
+  label{display:block;font-size:11px;color:var(--text-dim);margin:10px 0 4px;}
+  label:first-child{margin-top:0;}
+  select{
+    width:100%;background:var(--bg-deep);border:1px solid var(--border);
+    color:var(--text);padding:8px;border-radius:3px;font-family:var(--mono);
+    font-size:12px;
+  }
+  input[type=text],input[type=password]{
+    width:100%;background:var(--bg-deep);border:1px solid var(--border);
+    color:var(--text);padding:7px 8px;border-radius:3px;font-family:var(--mono);
+    font-size:12px;
+  }
+  input[type=text]:focus,input[type=password]:focus{outline:1px solid var(--amber-dim);}
+  .hint{font-size:10px;color:var(--text-dim);margin-top:8px;line-height:1.5;}
+
+  button{
+    width:100%;padding:10px;border-radius:3px;border:1px solid var(--border);
+    background:var(--panel-2);color:var(--text);font-family:var(--sans);
+    font-size:12px;font-weight:600;letter-spacing:.03em;cursor:pointer;
+    transition:background .15s,border-color .15s;
+  }
+  button:hover:not(:disabled){border-color:var(--amber-dim);}
+  button.primary{background:var(--amber);color:#181410;border-color:var(--amber);}
+  button.primary:hover:not(:disabled){background:#dcb35c;}
+  button.active{background:var(--amber);color:#181410;border-color:var(--amber);}
+
+  @keyframes pulseGreen {
+    0%,100% { box-shadow: 0 0 6px 1px rgba(122,199,110,.35); border-color:#6b8f5e; }
+    50%     { box-shadow: 0 0 16px 5px rgba(122,199,110,.8); border-color:#8fd67e; }
+  }
+  @keyframes pulseRed {
+    0%,100% { box-shadow: 0 0 6px 1px rgba(224,96,70,.35); border-color:#a5493a; }
+    50%     { box-shadow: 0 0 16px 5px rgba(224,96,70,.8); border-color:#e06046; }
+  }
+  @keyframes pulseAmber {
+    0%,100% { box-shadow: 0 0 6px 1px rgba(201,162,75,.4); }
+    50%     { box-shadow: 0 0 18px 6px rgba(201,162,75,.85); }
+  }
+  button.glow-green{ animation: pulseGreen 1.8s ease-in-out infinite; }
+  button.glow-red{ animation: pulseRed 1.8s ease-in-out infinite; }
+  button.glow-amber{ animation: pulseAmber 1.8s ease-in-out infinite; }
+  button:disabled{opacity:.35;cursor:not-allowed;}
+  button + button{margin-top:8px;}
+
+  #status,#selStatus,#cacheStatus{
+    font-family:var(--mono);font-size:11px;color:var(--text-dim);
+    white-space:pre-line;line-height:1.6;margin-top:10px;
+  }
+  #status .ok{color:var(--olive);}
+  #status .warn{color:var(--amber);}
+  #status .err,#selStatus .err{color:#c96b4b;}
+
+  #mapwrap{position:relative;flex:1;}
+  #map{position:absolute;inset:0;background:#050705;}
+
+  .leaflet-container{background:#050705;font-family:var(--sans);}
+
+  #coordsBox{
+    position:absolute;bottom:16px;right:16px;z-index:1000;
+    background:rgba(20,26,23,.92);border:1px solid var(--border);
+    border-radius:4px;padding:8px 12px;font-family:var(--mono);
+    font-size:11px;color:var(--amber);pointer-events:none;letter-spacing:.02em;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="panel">
+    <h1>Object Extractor</h1>
+    <div class="sub">Draw a box on the tile map, export the vanilla objects inside it.</div>
+
+    <div class="section">
+      <h2>1 — GitHub access</h2>
+      <label>Password</label>
+      <input type="password" id="ghToken" placeholder="ghp_...">
+      <div class="hint">Password cached locally.</div>
+    </div>
+
+    <div class="section">
+      <h2>2 — Map</h2>
+      <select id="mapSelect">
+        <option value="Chernarus">Chernarus</option>
+        <option value="Livonia">Livonia</option>
+        <option value="Sakhal">Sakhal</option>
+      </select>
+      <div id="status">Loading Chernarus…</div>
+    </div>
+
+    <div class="section">
+      <h2>3 — Select & export</h2>
+      <button id="modebtnPanel">Start selection</button>
+      <button id="clearBtn">Clear selection</button>
+      <button id="exportBtn" class="primary" disabled>Export selection JSON</button>
+      <div id="selStatus">No selection.</div>
+      <div id="cacheStatus"></div>
+    </div>
+  </div>
+
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div id="coordsBox">X —   Z —</div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- per-map presets (edit here if a map needs different tile depth) ----------
+  const CELL_SIZE = 2500;
+  const MAP_DEFAULTS = {
+    Chernarus: { worldSize: 15360, tileUrl: 'tiles/chernarus/{z}/{x}/{y}.webp', maxZoom: 7, tms: false },
+    Livonia:   { worldSize: 12800, tileUrl: 'tiles/livonia/{z}/{x}/{y}.webp',   maxZoom: 7, tms: false },
+    Sakhal:    { worldSize: 15360, tileUrl: 'tiles/sakhal/{z}/{x}/{y}.webp',    maxZoom: 7, tms: false }
+  };
+
+  // ---------- GitHub access ----------
+  // encoded to keep this out of a plain view-source glance — not real security,
+  // just enough to stop casual snooping (the PAT is still required either way)
+  const GH_OWNER = atob('bWlja21vbms3Nw==');
+  const GH_REPO = atob('T2JqZWN0RXh0cmFjdG9y');
+  const GH_BRANCH = atob('bWFpbg==');
+  const LS_TOKEN_KEY = 'oe_gh_token';
+
+  function ghToken(){
+    return el('ghToken').value.trim();
+  }
+  function ghApiHeaders(token){
+    return { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
+  }
+  function b64ToBytes(b64){
+    const binary = atob(b64.replace(/\n/g, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  // Fetches a file from the private repo via the Contents API (Bearer auth).
+  // Files under 1MB come back inline as base64; above that the Contents API
+  // returns a blob sha with no content, so we follow up against the Git
+  // Blobs API instead (works up to 100MB).
+  // Resolves {status:'ok', bytes:Uint8Array} | {status:'missing'} | {status:'error', message}
+  async function ghFetchBytes(path, signal){
+    const token = ghToken();
+    if (!token) return { status: 'error', message: 'no token set' };
+    const branch = GH_BRANCH;
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const url = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
+    try{
+      const res = await fetch(url, { headers: ghApiHeaders(token), signal });
+      if (res.status === 404) return { status: 'missing' };
+      if (res.status === 401) return { status: 'error', message: 'Unauthorized — check the token' };
+      if (res.status === 403) return { status: 'error', message: 'Forbidden — token permissions insufficient or rate limited' };
+      if (!res.ok) return { status: 'error', message: `GitHub error ${res.status}` };
+
+      const data = await res.json();
+      if (data.content && data.encoding === 'base64'){
+        return { status: 'ok', bytes: b64ToBytes(data.content) };
+      }
+      if (data.sha){
+        const blobUrl = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/git/blobs/${data.sha}`;
+        const blobRes = await fetch(blobUrl, { headers: ghApiHeaders(token), signal });
+        if (!blobRes.ok) return { status: 'error', message: `GitHub error ${blobRes.status}` };
+        const blob = await blobRes.json();
+        if (blob.content && blob.encoding === 'base64'){
+          return { status: 'ok', bytes: b64ToBytes(blob.content) };
+        }
+      }
+      return { status: 'error', message: 'Could not read file content from GitHub' };
+    } catch(err){
+      if (err && err.name === 'AbortError') return { status: 'stale' };
+      return { status: 'error', message: (err && err.message) || 'network error' };
+    }
+  }
+
+  // ---------- state ----------
+  let currentMap = 'Chernarus';
+  let map = null;
+  let tileLayer = null;
+  let gridLayer = null;
+  let selecting = false;
+  let dragging = false;
+  let dragStart = null;
+  let selRect = null;
+  let selBoundsWorld = null;
+  let selectedObjects = [];
+
+  // per-map cell cache: { Chernarus: { "A7": [objects...] or null-if-missing }, ... }
+  const cellCache = { Chernarus: {}, Livonia: {}, Sakhal: {} };
+  const inflight = {}; // dedupe concurrent fetches, key = "Map/Cell"
+
+  // tile cache, keyed by repo path (e.g. "tiles/chernarus/5/12/9.webp")
+  // value: blob object-URL string | null (confirmed missing) | undefined (not yet fetched)
+  const tileCache = {};
+  const tileInflight = {};
+
+  // Limits how many tile requests can be in flight to GitHub at once.
+  function createLimiter(maxConcurrent){
+    let active = 0;
+    const queue = [];
+    function runNext(){
+      if (active >= maxConcurrent || queue.length === 0) return;
+      active++;
+      const job = queue.shift();
+      job.fn().then(job.resolve, job.reject).finally(()=>{ active--; runNext(); });
+    }
+    return function limit(fn){
+      return new Promise((resolve, reject)=>{
+        queue.push({ fn, resolve, reject });
+        runNext();
+      });
+    };
+  }
+  const tileLimiter = createLimiter(6);
+
+  // Tracks how many currently-displayed tiles want a given path, so we know
+  // whether a tile is still needed once its turn comes up in the queue.
+  const tileNeeded = {};
+  // AbortController per in-flight tile fetch, keyed by path, so a request
+  // can be cancelled the moment its tile is no longer needed.
+  const tileAbortControllers = {};
+
+  const el = id => document.getElementById(id);
+
+  // load persisted GitHub settings before anything else runs
+  el('ghToken').value = localStorage.getItem(LS_TOKEN_KEY) || '';
+  el('ghToken').addEventListener('change', ()=>{
+    localStorage.setItem(LS_TOKEN_KEY, ghToken());
+    initMap();
+  });
+
+  // ---------- grid helpers ----------
+  function gridDims(worldSize){
+    return Math.ceil(worldSize / CELL_SIZE); // cols == rows
+  }
+  function cellIdFor(x, z, worldSize){
+    const n = gridDims(worldSize);
+    let col = Math.floor(x / CELL_SIZE);
+    let row = Math.floor(z / CELL_SIZE);
+    col = Math.max(0, Math.min(n - 1, col));
+    row = Math.max(0, Math.min(n - 1, row));
+    return String.fromCharCode(65 + col) + (row + 1);
+  }
+  function cellsInBounds(bounds, worldSize){
+    const n = gridDims(worldSize);
+    const c0 = Math.max(0, Math.min(n - 1, Math.floor(bounds.minX / CELL_SIZE)));
+    const c1 = Math.max(0, Math.min(n - 1, Math.floor(bounds.maxX / CELL_SIZE)));
+    const r0 = Math.max(0, Math.min(n - 1, Math.floor(bounds.minZ / CELL_SIZE)));
+    const r1 = Math.max(0, Math.min(n - 1, Math.floor(bounds.maxZ / CELL_SIZE)));
+    const ids = [];
+    for (let col = c0; col <= c1; col++){
+      for (let row = r0; row <= r1; row++){
+        ids.push(String.fromCharCode(65 + col) + (row + 1));
+      }
+    }
+    return ids;
+  }
+
+  // ---------- CRS / map setup ----------
+  function buildCRS(worldSize, tileSize){
+    const scaleAtZoom0 = tileSize / worldSize;
+    return L.extend({}, L.CRS.Simple, {
+      transformation: new L.Transformation(scaleAtZoom0, 0, scaleAtZoom0, 0)
+    });
+  }
+  function worldToLatLng(x, z, worldSize){
+    return L.latLng(worldSize - z, x);
+  }
+  function latLngToWorld(latlng, worldSize){
+    return { x: latlng.lng, z: worldSize - latlng.lat };
+  }
+
+  const BLANK_TILE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  // Fetches one tile's image bytes, honoring the concurrency limiter and
+  // skipping the network call if the tile is no longer needed by the time
+  // its turn comes up.
+  function startTileFetch(path){
+    const p = tileLimiter(() => {
+      if ((tileNeeded[path] || 0) <= 0){
+        return Promise.resolve({ status: 'stale' });
+      }
+      const controller = new AbortController();
+      tileAbortControllers[path] = controller;
+      return ghFetchBytes(path, controller.signal);
+    }).then(result=>{
+      delete tileAbortControllers[path];
+      if (result.status === 'stale'){
+        return undefined; // don't cache — a future request should still try
+      }
+      if (result.status === 'missing'){
+        tileCache[path] = null;
+        return null;
+      }
+      if (result.status === 'error'){
+        if (!window._ghTileWarned){
+          window._ghTileWarned = true;
+          el('status').innerHTML = `<span class="err">Tile load failed: ${result.message}</span>`;
+        }
+        // don't cache real failures (auth/network) — allow retry next time,
+        // only cache confirmed-missing (404) tiles
+        return undefined;
+      }
+      const blob = new Blob([result.bytes], { type: 'image/webp' });
+      const objUrl = URL.createObjectURL(blob);
+      tileCache[path] = objUrl;
+      return objUrl;
+    }).finally(()=>{ delete tileInflight[path]; });
+
+    tileInflight[path] = p;
+    return p;
+  }
+
+  // Resolves a tile's image: reuse a cached result, join an in-flight
+  // request for the same path, or start a new fetch. If a joined request
+  // resolves empty but the tile is still needed, fetches it again rather
+  // than showing a blank tile.
+  function resolveTile(path){
+    if (tileCache[path] !== undefined) return Promise.resolve(tileCache[path]);
+    if (tileInflight[path]){
+      return tileInflight[path].then(url=>{
+        if (url === undefined && (tileNeeded[path] || 0) > 0){
+          return startTileFetch(path);
+        }
+        return url;
+      });
+    }
+    return startTileFetch(path);
+  }
+
+  // Tile layer that fetches each tile through GitHub's Contents API with a
+  // Bearer token (plain <img src> can't carry auth headers, so we fetch the
+  // bytes ourselves and hand Leaflet a blob object URL).
+  const AuthTileLayer = L.TileLayer.extend({
+    createTile: function(coords, done){
+      const img = document.createElement('img');
+      let x = coords.x, y = coords.y;
+      const z = coords.z;
+      if (this.options.tms){
+        y = Math.pow(2, z) - 1 - y;
+      }
+      const path = this._url
+        .replace('{z}', z).replace('{x}', x).replace('{y}', y);
+
+      tileNeeded[path] = (tileNeeded[path] || 0) + 1;
+
+      resolveTile(path).then(url=>{
+        img.src = (url === null || url === undefined) ? BLANK_TILE : url;
+        done(null, img);
+      });
+
+      return img;
+    }
+  });
+
+  // Keeps tileNeeded and any in-flight fetch in sync when Leaflet
+  // discards a tile that's scrolled or zoomed out of view.
+  function onTileUnload(e){
+    let x = e.coords.x, y = e.coords.y;
+    const z = e.coords.z;
+    const cfg = MAP_DEFAULTS[currentMap];
+    if (cfg.tms) y = Math.pow(2, z) - 1 - y;
+    const path = cfg.tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    tileNeeded[path] = (tileNeeded[path] || 1) - 1;
+    if (tileNeeded[path] <= 0 && tileAbortControllers[path]){
+      tileAbortControllers[path].abort();
+      delete tileAbortControllers[path];
+    }
+  }
+
+  function initMap(){
+    window._ghTileWarned = false;
+    const cfg = MAP_DEFAULTS[currentMap];
+    if (map) { map.remove(); map = null; }
+
+    const tileSize = 256;
+    const CRS = buildCRS(cfg.worldSize, tileSize);
+
+    map = L.map('map', {
+      crs: CRS,
+      minZoom: 0,
+      maxZoom: cfg.maxZoom,
+      zoomControl: false,
+      attributionControl: false,
+      maxBoundsViscosity: 0.4
+    });
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    tileLayer = new AuthTileLayer(cfg.tileUrl, {
+      minZoom: 0,
+      maxZoom: cfg.maxZoom,
+      tileSize: tileSize,
+      noWrap: true,
+      tms: cfg.tms,
+      errorTileUrl: ''
+    }).addTo(map);
+    tileLayer.on('tileunload', onTileUnload);
+
+    const full = tileSize * Math.pow(2, cfg.maxZoom);
+    const pad = full * 0.25; // let the user pan a bit past the edge instead of hitting a hard wall
+    map.setMaxBounds([[-pad, -pad], [full + pad, full + pad]]);
+    map.fitBounds([[0,0],[full,full]], { padding: [30, 30] });
+
+    if (gridLayer) { gridLayer.remove(); }
+    gridLayer = buildGrid(cfg.worldSize).addTo(map);
+
+    map.on('mousemove', onMouseMove);
+    map.on('mousedown', onMouseDown);
+    map.on('mouseup', onMouseUp);
+
+    window._worldSize = cfg.worldSize;
+    clearSelection();
+    updateCacheStatus();
+    el('status').innerHTML = `<span class="ok">${currentMap} loaded.</span>\nDraw a box to fetch data on demand.`;
+  }
+
+  // ---------- 1000m grid overlay ----------
+  function buildGrid(worldSize){
+    const group = L.layerGroup();
+    const lineColor = 'rgba(201,162,75,0.38)';
+
+    for (let x = 0; x <= worldSize; x += 1000){
+      group.addLayer(L.polyline(
+        [worldToLatLng(x, 0, worldSize), worldToLatLng(x, worldSize, worldSize)],
+        { color: lineColor, weight: 1, interactive: false }
+      ));
+    }
+    for (let z = 0; z <= worldSize; z += 1000){
+      group.addLayer(L.polyline(
+        [worldToLatLng(0, z, worldSize), worldToLatLng(worldSize, z, worldSize)],
+        { color: lineColor, weight: 1, interactive: false }
+      ));
+    }
+    return group;
+  }
+
+  el('mapSelect').addEventListener('change', ()=>{
+    currentMap = el('mapSelect').value;
+    initMap();
+  });
+
+  // ---------- selection drawing ----------
+  function onMouseMove(e){
+    const w = latLngToWorld(e.latlng, window._worldSize);
+    const cx = Math.min(window._worldSize, Math.max(0, w.x));
+    const cz = Math.min(window._worldSize, Math.max(0, w.z));
+    el('coordsBox').textContent = `X ${cx.toFixed(0)}   Z ${cz.toFixed(0)}`;
+    if (dragging) updateDragRect(e.latlng);
+  }
+
+  function setSelecting(on){
+    selecting = on;
+    const b = el('modebtnPanel');
+    b.textContent = on ? 'Selecting… (drag a box)' : 'Start selection';
+    b.classList.toggle('active', on);
+    if (map) map.dragging[on ? 'disable' : 'enable']();
+    updateButtonGlow();
+  }
+
+  function updateButtonGlow(){
+    el('modebtnPanel').classList.toggle('glow-green', !selecting);
+    el('clearBtn').classList.toggle('glow-red', !!selBoundsWorld);
+    el('exportBtn').classList.toggle('glow-amber', selectedObjects.length > 0);
+  }
+
+  function onMouseDown(e){
+    if (!selecting) return;
+    dragging = true;
+    dragStart = e.latlng;
+    if (selRect) { map.removeLayer(selRect); selRect = null; }
+  }
+
+  function updateDragRect(latlng){
+    const bounds = L.latLngBounds(dragStart, latlng);
+    if (!selRect){
+      selRect = L.rectangle(bounds, {
+        color: '#c9a24b', weight: 2, dashArray: '6 4',
+        fillColor: '#c9a24b', fillOpacity: 0.08
+      }).addTo(map);
+    } else {
+      selRect.setBounds(bounds);
+    }
+  }
+
+  function onMouseUp(e){
+    if (!selecting || !dragging) return;
+    dragging = false;
+    if (!selRect) return;
+    const b = selRect.getBounds();
+    const p1 = latLngToWorld(b.getSouthWest(), window._worldSize);
+    const p2 = latLngToWorld(b.getNorthEast(), window._worldSize);
+    selBoundsWorld = {
+      minX: Math.min(p1.x, p2.x), maxX: Math.max(p1.x, p2.x),
+      minZ: Math.min(p1.z, p2.z), maxZ: Math.max(p1.z, p2.z)
+    };
+    setSelecting(false);
+    updateButtonGlow();
+    loadCellsAndCompute();
+  }
+
+  // ---------- on-demand cell loading ----------
+  const cellErrors = {}; // key = "Map/Cell" -> error string, cleared on success
+
+  function fetchCell(mapName, cellId){
+    const cache = cellCache[mapName];
+    if (cache[cellId] !== undefined) return Promise.resolve(cache[cellId]);
+
+    const key = mapName + '/' + cellId;
+    if (inflight[key]) return inflight[key];
+
+    const path = `Data/${mapName}/${cellId}.json`;
+    const p = ghFetchBytes(path).then(result=>{
+      if (result.status === 'missing'){ cache[cellId] = null; delete cellErrors[key]; return null; }
+      if (result.status === 'error'){
+        cellErrors[key] = result.message;
+        cache[cellId] = undefined; // don't cache a hard failure — allow retry
+        return undefined;
+      }
+      try{
+        const text = new TextDecoder('utf-8').decode(result.bytes);
+        const parsed = JSON.parse(text);
+        const arr = Array.isArray(parsed) ? parsed : (parsed.Objects || parsed.objects || []);
+        cache[cellId] = arr;
+        delete cellErrors[key];
+        return arr;
+      } catch(err){
+        cellErrors[key] = 'bad JSON: ' + err.message;
+        cache[cellId] = undefined;
+        return undefined;
+      }
+    }).finally(()=>{ delete inflight[key]; updateCacheStatus(); });
+
+    inflight[key] = p;
+    return p;
+  }
+
+  function loadCellsAndCompute(){
+    if (!selBoundsWorld) return;
+    const ids = cellsInBounds(selBoundsWorld, window._worldSize);
+    el('selStatus').innerHTML = `<span class="warn">Fetching ${ids.length} cell(s): ${ids.join(', ')}…</span>`;
+    el('exportBtn').disabled = true;
+
+    Promise.all(ids.map(id => fetchCell(currentMap, id))).then(results=>{
+      const missing = ids.filter((id,i)=> results[i] === null);
+      const failed = ids.filter((id,i)=> results[i] === undefined);
+      const b = selBoundsWorld;
+      let pool = [];
+      results.forEach(arr=>{ if (arr) pool = pool.concat(arr); });
+
+      selectedObjects = pool.filter(o=>{
+        const x = o.pos[0], z = o.pos[2];
+        return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
+      });
+
+      const areaW = (b.maxX - b.minX).toFixed(0);
+      const areaH = (b.maxZ - b.minZ).toFixed(0);
+      let msg = `Area: ${areaW} x ${areaH} m\nCells: ${ids.join(', ')}`;
+      if (missing.length) msg += `\n(no file for: ${missing.join(', ')})`;
+      if (failed.length){
+        msg += `\n\nFAILED to load: ${failed.join(', ')}`;
+        failed.forEach(id=>{
+          const err = cellErrors[currentMap + '/' + id];
+          if (err) msg += `\n  ${id}: ${err}`;
+        });
+      }
+      msg += `\n\nObjects in selection: ${selectedObjects.length.toLocaleString()}`;
+      el('selStatus').innerHTML = failed.length
+        ? msg.split('\n').map(l => l.startsWith('  ') || l.startsWith('FAILED') ? `<span class="err">${l}</span>` : l).join('\n')
+        : msg;
+      el('exportBtn').disabled = selectedObjects.length === 0;
+      updateButtonGlow();
+      updateCacheStatus();
+    });
+  }
+
+  function updateCacheStatus(){
+    const cache = cellCache[currentMap];
+    const loadedCells = Object.keys(cache).filter(k => cache[k] !== null);
+    const objCount = loadedCells.reduce((sum,k)=> sum + (cache[k] ? cache[k].length : 0), 0);
+    el('cacheStatus').textContent = `Cached this session: ${loadedCells.length} cell(s), ${objCount.toLocaleString()} objects`;
+  }
+
+  function clearSelection(){
+    if (selRect && map) { map.removeLayer(selRect); }
+    selRect = null;
+    selBoundsWorld = null;
+    selectedObjects = [];
+    el('selStatus').textContent = 'No selection.';
+    el('exportBtn').disabled = true;
+    updateButtonGlow();
+  }
+
+  // ---------- export ----------
+  el('exportBtn').addEventListener('click', ()=>{
+    if (!selectedObjects.length) return;
+    const payload = { Objects: selectedObjects };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    a.href = url;
+    a.download = `${currentMap.toLowerCase()}_selection_${ts}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // ---------- wiring ----------
+  el('modebtnPanel').addEventListener('click', ()=> setSelecting(!selecting));
+  el('clearBtn').addEventListener('click', clearSelection);
+
+  initMap();
+})();
+</script>
+</body>
+</html>
