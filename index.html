@@ -40,6 +40,12 @@
     border-bottom:1px solid var(--border);
   }
   .section{padding:16px 18px;border-bottom:1px solid var(--border);}
+  /* double-click a section header to collapse / expand */
+  .section > h2, .section-head h2{cursor:pointer;user-select:none;-webkit-user-select:none;}
+  .section > h2::after, .section-head h2::after{content:' \25BE';font-size:10px;color:var(--text-dim);}
+  .section.collapsed > h2::after, .section.collapsed .section-head h2::after{content:' \25B8';}
+  .section.collapsed > :not(h2):not(.section-head){display:none !important;}
+  .section.collapsed > h2{margin-bottom:0;}
   .section h2{
     font-size:10px;letter-spacing:.12em;text-transform:uppercase;
     color:var(--olive);margin:0 0 10px;font-weight:600;
@@ -96,6 +102,37 @@
   #status .warn{color:var(--amber);}
   #status .err,#selStatus .err{color:#c96b4b;}
 
+  /* --- classname filter --- */
+  #filterBox{position:relative;}
+  #filterInput:disabled{opacity:.4;cursor:not-allowed;}
+  #filterSuggest{
+    position:absolute;left:0;right:0;top:100%;margin-top:2px;
+    max-height:180px;overflow-y:auto;
+    background:var(--panel-2);border:1px solid var(--border);
+    border-radius:3px;z-index:20;display:none;
+  }
+  #filterSuggest div{
+    padding:6px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;
+  }
+  #filterSuggest div:hover,#filterSuggest div.hi{background:var(--bg-deep);color:var(--amber);}
+  #filterSuggest .empty{color:var(--text-dim);cursor:default;}
+  #filterSuggest .empty:hover{background:none;color:var(--text-dim);}
+  #filterChips{
+    display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;
+  }
+  #filterChips:empty{margin-top:0;}
+  .chip{
+    display:flex;align-items:center;gap:6px;
+    background:var(--bg-deep);border:1px solid var(--amber-dim);
+    color:var(--text);font-family:var(--mono);font-size:11px;
+    padding:4px 6px 4px 9px;border-radius:12px;
+  }
+  .chip button{
+    width:auto;padding:0;margin:0;border:none;background:none;
+    color:var(--amber);font-size:13px;line-height:1;cursor:pointer;
+  }
+  .chip button:hover{color:#e06046;}
+
   #mapwrap{position:relative;flex:1;}
   #map{position:absolute;inset:0;background:#050705;}
 
@@ -107,6 +144,31 @@
     border-radius:4px;padding:8px 12px;font-family:var(--mono);
     font-size:11px;color:var(--amber);pointer-events:none;letter-spacing:.02em;
   }
+
+  /* ---- place name labels ---- */
+  #namesStatus{font-family:var(--mono);font-size:11px;color:var(--text-dim);line-height:1.6;margin-top:10px;white-space:pre-line;}
+  .names-ok{color:var(--olive);}
+  .names-warn{color:var(--amber);}
+  .names-err{color:#c96b4b;}
+  .place-label{
+    position:absolute;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;
+    pointer-events:none;font-family:var(--sans);
+    text-shadow:0 0 3px #000,0 0 3px #000,0 0 5px #000;
+  }
+  .place-label .pn2{display:block;font-size:.85em;opacity:.8;}
+  .pn-major{font-size:14px;font-weight:700;color:#f2e6c0;}
+  .pn-village{font-size:11px;color:#e3e7dc;}
+  .pn-local{font-size:10px;color:#b9c2b3;}
+  .pn-terrain{font-size:10px;font-style:italic;color:#c9b48a;}
+  .pn-water{font-size:10px;font-style:italic;color:#7fb7e6;}
+  .pn-other{font-size:9px;color:#9aa395;}
+  .names-row{display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0;margin:0;color:var(--text-dim);cursor:pointer;}
+  .names-row input{margin:0;width:auto;accent-color:var(--amber);cursor:pointer;}
+  .names-row .names-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .names-row .names-count{font-family:var(--mono);font-size:10px;}
+  .names-row.off{opacity:.45;}
+  #namesTypes{max-height:150px;overflow:auto;margin-top:4px;}
+  .names-err{color:#c96b4b;}
 </style>
 </head>
 <body>
@@ -129,8 +191,18 @@
         <option value="Chernarus">Chernarus</option>
         <option value="Livonia">Livonia</option>
         <option value="Sakhal">Sakhal</option>
+        <option value="Nasdara">Nasdara</option>
       </select>
       <div id="status">Loading Chernarus…</div>
+      <label class="names-row" style="margin-top:10px;">
+        <input type="checkbox" id="showNames" checked>
+        <span class="names-label">show place names</span>
+        <span class="names-count" id="namesCount"></span>
+      </label>
+      <label class="names-row"><input type="checkbox" id="declutterNames" checked><span class="names-label">declutter by zoom level</span></label>
+      <label class="names-row"><input type="checkbox" id="showName2"><span class="names-label">also show local-script name</span></label>
+      <div id="namesTypes"></div>
+      <div id="namesStatus"></div>
     </div>
 
     <div class="section">
@@ -140,6 +212,17 @@
       <button id="exportBtn" class="primary" disabled>Export selection JSON</button>
       <div id="selStatus">No selection.</div>
       <div id="cacheStatus"></div>
+    </div>
+
+    <div class="section">
+      <h2>4 — Filter by classname</h2>
+      <div id="filterBox">
+        <input type="text" id="filterInput" placeholder="Type a classname…" disabled autocomplete="off">
+        <div id="filterSuggest"></div>
+      </div>
+      <div id="filterChips"></div>
+      <button id="clearFilterBtn" style="margin-top:8px;">Clear filters</button>
+      <div class="hint">Leave empty to export every object in the selection. Otherwise only checked classnames are exported.</div>
     </div>
   </div>
 
@@ -160,7 +243,8 @@
   const MAP_DEFAULTS = {
     Chernarus: { worldSize: 15360, tileUrl: 'tiles/chernarus/{z}/{x}/{y}.webp', maxZoom: 7, tms: false },
     Livonia:   { worldSize: 12800, tileUrl: 'tiles/livonia/{z}/{x}/{y}.webp',   maxZoom: 7, tms: false },
-    Sakhal:    { worldSize: 15360, tileUrl: 'tiles/sakhal/{z}/{x}/{y}.webp',    maxZoom: 7, tms: false }
+    Sakhal:    { worldSize: 15360, tileUrl: 'tiles/sakhal/{z}/{x}/{y}.webp',    maxZoom: 7, tms: false },
+    Nasdara:   { worldSize: 16384, tileUrl: 'tiles/nasdara/{z}/{x}/{y}.webp',   maxZoom: 7, tms: false }
   };
 
   // ---------- GitHub access ----------
@@ -234,8 +318,13 @@
   let selBoundsWorld = null;
   let selectedObjects = [];
 
+  // ---------- classname filter state ----------
+  let availableClassNames = [];   // unique names present in the current selection, sorted
+  let classNameFilter = new Set(); // names the user has picked to restrict export to
+  let filterHiIndex = -1;         // keyboard-highlighted suggestion index
+
   // per-map cell cache: { Chernarus: { "A7": [objects...] or null-if-missing }, ... }
-  const cellCache = { Chernarus: {}, Livonia: {}, Sakhal: {} };
+  const cellCache = { Chernarus: {}, Livonia: {}, Sakhal: {}, Nasdara: {} };
   const inflight = {}; // dedupe concurrent fetches, key = "Map/Cell"
 
   // tile cache, keyed by repo path (e.g. "tiles/chernarus/5/12/9.webp")
@@ -380,24 +469,65 @@
   // Tile layer that fetches each tile through GitHub's Contents API with a
   // Bearer token (plain <img src> can't carry auth headers, so we fetch the
   // bytes ourselves and hand Leaflet a blob object URL).
+  // Missing tile -> walk up to the nearest ancestor tile that exists (z-1, z-2, ...)
+  // and show the matching sub-region of it, scaled up. Applies to every map.
+  const derivedTileCache = {};
+  async function findAncestorTile(coords, pathFor){
+    for (let k = 1; k <= coords.z; k++){
+      const apath = pathFor(coords.z - k, coords.x >> k, coords.y >> k);
+      tileNeeded[apath] = (tileNeeded[apath] || 0) + 1;
+      let url;
+      try { url = await resolveTile(apath); }
+      finally { tileNeeded[apath] = Math.max(0, (tileNeeded[apath] || 1) - 1); }
+      if (url) return { url, k };
+      if (url === undefined) return null;      // load error / cancelled — leave blank
+    }
+    return null;
+  }
+
   const AuthTileLayer = L.TileLayer.extend({
     createTile: function(coords, done){
       const img = document.createElement('img');
-      let x = coords.x, y = coords.y;
-      const z = coords.z;
-      if (this.options.tms){
-        y = Math.pow(2, z) - 1 - y;
-      }
-      const path = this._url
-        .replace('{z}', z).replace('{x}', x).replace('{y}', y);
-
+      const tms = this.options.tms;
+      const tmpl = this._url;
+      const size = this.getTileSize().x;
+      const pathFor = (z, x, y) => tmpl.replace('{z}', z).replace('{x}', x)
+        .replace('{y}', tms ? Math.pow(2, z) - 1 - y : y);
+      const path = pathFor(coords.z, coords.x, coords.y);
       tileNeeded[path] = (tileNeeded[path] || 0) + 1;
 
-      resolveTile(path).then(url=>{
-        img.src = (url === null || url === undefined) ? BLANK_TILE : url;
-        done(null, img);
-      });
+      resolveTile(path).then(async url=>{
+        if (url){ img.src = url; done(null, img); return; }
+        if (url === undefined || coords.z === 0){ img.src = BLANK_TILE; done(null, img); return; }
 
+        // tile doesn't exist at this zoom -> upscale from a lower zoom
+        if (derivedTileCache[path]){ img.src = derivedTileCache[path]; done(null, img); return; }
+        const found = await findAncestorTile(coords, pathFor);
+        if (!found){ img.src = BLANK_TILE; done(null, img); return; }
+
+        const parent = new Image();
+        parent.onload = ()=>{
+          const span = Math.pow(2, found.k);
+          const sub = size / span;
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(parent, (coords.x % span) * sub, (coords.y % span) * sub, sub, sub, 0, 0, size, size);
+          canvas.toBlob(blob=>{
+            if (blob){
+              derivedTileCache[path] = URL.createObjectURL(blob);
+              img.src = derivedTileCache[path];
+            } else {
+              img.src = BLANK_TILE;
+            }
+            done(null, img);
+          }, 'image/webp', 0.92);
+        };
+        parent.onerror = ()=>{ img.src = BLANK_TILE; done(null, img); };
+        parent.src = found.url;
+      });
       return img;
     }
   });
@@ -416,6 +546,117 @@
       delete tileAbortControllers[path];
     }
   }
+
+  // ---------- place names ----------
+  // names/<map>_names.json: [{name,name2,type,coords:"x / z",gen_area}, ...]
+  function escapeHtml(v){ return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  const NAMES_DIR = 'names';
+  const namesCache = {};                        // mapName -> { list, skipped }
+  let placeNames = [];
+  let namesLayer = null;
+  let namesLoadSeq = 0;
+  const typeOverride = new Map();               // type key -> bool, set by the type tick-boxes
+  const DEFAULT_ON = new Set(['city','capital','small city','town','village','local','local area','hill','mountain','marine','lake']);
+  const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)\s*$/;
+
+  function typeKey(t){ return String(t || '').toLowerCase().replace(/_/g, ' ').trim(); }
+  function isTypeOn(k){ return typeOverride.has(k) ? typeOverride.get(k) : DEFAULT_ON.has(k); }
+  function typeTier(k){
+    if (['city','capital','small city','town'].includes(k)) return { cls:'pn-major',   minZoom:0 };
+    if (k === 'village')                                     return { cls:'pn-village', minZoom:2 };
+    if (k === 'local' || k === 'local area')                 return { cls:'pn-local',   minZoom:3 };
+    if (k === 'hill' || k === 'mountain')                    return { cls:'pn-terrain', minZoom:3 };
+    if (k === 'marine' || k === 'lake')                      return { cls:'pn-water',   minZoom:3 };
+    return { cls:'pn-other', minZoom:4 };
+  }
+
+  function setNamesStatus(html){ el('namesStatus').innerHTML = html; }
+
+  function refreshNameLabels(){
+    if (!namesLayer) return;
+    namesLayer.clearLayers();
+    if (!map || !el('showNames').checked) return;
+    const z = map.getZoom();
+    const declutter = el('declutterNames').checked;
+    const withName2 = el('showName2').checked;
+    for (const n of placeNames){
+      if (!isTypeOn(n.key)) continue;
+      const tier = typeTier(n.key);
+      if (declutter && z < tier.minZoom) continue;
+      const second = (withName2 && n.name2 && n.name2 !== n.name) ? `<span class="pn2">${escapeHtml(n.name2)}</span>` : '';
+      L.marker(worldToLatLng(n.x, n.z, window._worldSize), {
+        pane: 'names', interactive: false, keyboard: false,
+        icon: L.divIcon({ className: '', html: `<div class="place-label ${tier.cls}">${escapeHtml(n.name)}${second}</div>`, iconSize: [0, 0] })
+      }).addTo(namesLayer);
+    }
+  }
+
+  // tick-boxes per place type (defaults match DEFAULT_ON; tick extra types such as Airfield to show them)
+  function renderNameTypes(){
+    const info = {};
+    for (const p of placeNames){
+      if (!info[p.key]) info[p.key] = { label: p.type || '(none)', count: 0 };
+      info[p.key].count++;
+    }
+    el('namesTypes').innerHTML = Object.keys(info).sort().map(k => `
+      <label class="names-row${isTypeOn(k) ? '' : ' off'}">
+        <input type="checkbox" data-type="${escapeHtml(k).replace(/"/g,'&quot;')}"${isTypeOn(k) ? ' checked' : ''}>
+        <span class="names-label">${escapeHtml(info[k].label)}</span>
+        <span class="names-count">${info[k].count}</span>
+      </label>`).join('');
+    el('namesTypes').querySelectorAll('input[type=checkbox]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        typeOverride.set(cb.dataset.type, cb.checked);
+        cb.closest('.names-row').classList.toggle('off', !cb.checked);
+        refreshNameLabels();
+      });
+    });
+    el('namesCount').textContent = placeNames.length ? String(placeNames.length) : '';
+  }
+
+  function applyNames(mapName, entry){
+    placeNames = entry.list;
+    renderNameTypes();
+    refreshNameLabels();
+    setNamesStatus(`<span class="names-ok">${escapeHtml(mapName)}: ${entry.list.length} names loaded</span>` +
+      (entry.skipped.length ? `\n<span class="names-warn">${entry.skipped.length} skipped (bad coords): ${escapeHtml(entry.skipped.join(', '))}</span>` : ''));
+  }
+
+  async function loadPlaceNames(){
+    const seq = ++namesLoadSeq;
+    const mapName = currentMap;
+    if (namesCache[mapName]){ applyNames(mapName, namesCache[mapName]); return; }
+    placeNames = [];
+    renderNameTypes();
+    refreshNameLabels();
+    if (!ghToken()){ setNamesStatus(`<span class="names-warn">Set the token to load place names.</span>`); return; }
+    setNamesStatus('Loading place names…');
+    const lower = `${NAMES_DIR}/${mapName.toLowerCase()}_names.json`;
+    const PATH = lower;
+    let r = await ghFetchBytes(PATH);
+    if (r.status === 'missing'){ const PATH2 = `${NAMES_DIR}/${mapName}_names.json`; r = await ghFetchBytes(PATH2); }
+    if (seq !== namesLoadSeq) return;   // map switched while fetching
+    if (r.status === 'missing'){ setNamesStatus(`<span class="names-warn">${escapeHtml(lower)} not found in the repo.</span>`); return; }
+    if (r.status !== 'ok'){ setNamesStatus(`<span class="names-err">Place names failed: ${escapeHtml(r.message || r.status)}</span>`); return; }
+    try{
+      let raw = JSON.parse(new TextDecoder('utf-8').decode(r.bytes));
+      if (!Array.isArray(raw)) raw = (raw && (raw.places || raw.names)) || null;
+      if (!Array.isArray(raw)) throw new Error('expected a JSON array');
+      const list = [], skipped = [];
+      raw.forEach(e => {
+        const m = COORD_RE.exec(e && e.coords || '');
+        if (!m || !e.name){ skipped.push((e && e.name) || '(unnamed)'); return; }
+        const type = e.type || '';
+        list.push({ name: String(e.name), name2: e.name2 ? String(e.name2) : '', type, key: typeKey(type), x: parseFloat(m[1]), z: parseFloat(m[2]) });
+      });
+      namesCache[mapName] = { list, skipped };
+      applyNames(mapName, namesCache[mapName]);
+    }catch(err){
+      setNamesStatus(`<span class="names-err">Could not parse ${escapeHtml(lower)}: ${escapeHtml(err.message)}</span>`);
+    }
+  }
+
+  ['showNames','declutterNames','showName2'].forEach(id => el(id).addEventListener('change', refreshNameLabels));
 
   function initMap(){
     window._ghTileWarned = false;
@@ -454,6 +695,12 @@
     if (gridLayer) { gridLayer.remove(); }
     gridLayer = buildGrid(cfg.worldSize).addTo(map);
 
+    map.createPane('names');
+    map.getPane('names').style.zIndex = 450;
+    map.getPane('names').style.pointerEvents = 'none';
+    namesLayer = L.layerGroup().addTo(map);
+    map.on('zoomend', refreshNameLabels);
+
     map.on('mousemove', onMouseMove);
     map.on('mousedown', onMouseDown);
     map.on('mouseup', onMouseUp);
@@ -462,6 +709,8 @@
     clearSelection();
     updateCacheStatus();
     el('status').innerHTML = `<span class="ok">${currentMap} loaded.</span>\nDraw a box to fetch data on demand.`;
+
+    loadPlaceNames();
   }
 
   // ---------- 1000m grid overlay ----------
@@ -510,7 +759,7 @@
   function updateButtonGlow(){
     el('modebtnPanel').classList.toggle('glow-green', !selecting);
     el('clearBtn').classList.toggle('glow-red', !!selBoundsWorld);
-    el('exportBtn').classList.toggle('glow-amber', selectedObjects.length > 0);
+    el('exportBtn').classList.toggle('glow-amber', objectsMatchingFilter().length > 0);
   }
 
   function onMouseDown(e){
@@ -617,8 +866,7 @@
       el('selStatus').innerHTML = failed.length
         ? msg.split('\n').map(l => l.startsWith('  ') || l.startsWith('FAILED') ? `<span class="err">${l}</span>` : l).join('\n')
         : msg;
-      el('exportBtn').disabled = selectedObjects.length === 0;
-      updateButtonGlow();
+      rebuildAvailableClassNames(); // also sets exportBtn.disabled/label and re-glows
       updateCacheStatus();
     });
   }
@@ -638,12 +886,148 @@
     el('selStatus').textContent = 'No selection.';
     el('exportBtn').disabled = true;
     updateButtonGlow();
+    resetClassNameFilter();
   }
+
+  // ---------- classname filter ----------
+  function resetClassNameFilter(){
+    availableClassNames = [];
+    classNameFilter.clear();
+    el('filterInput').value = '';
+    el('filterInput').disabled = true;
+    hideSuggestions();
+    renderChips();
+  }
+
+  function rebuildAvailableClassNames(){
+    const names = new Set();
+    selectedObjects.forEach(o => { if (o && o.name) names.add(o.name); });
+    availableClassNames = Array.from(names).sort((a,b)=> a.localeCompare(b));
+    // drop any filter picks that no longer exist in this selection
+    classNameFilter.forEach(n => { if (!names.has(n)) classNameFilter.delete(n); });
+    el('filterInput').disabled = availableClassNames.length === 0;
+    renderChips();
+  }
+
+  function objectsMatchingFilter(){
+    if (classNameFilter.size === 0) return selectedObjects;
+    return selectedObjects.filter(o => o && classNameFilter.has(o.name));
+  }
+
+  function addFilterName(name){
+    if (!name || !availableClassNames.includes(name)) return;
+    classNameFilter.add(name);
+    el('filterInput').value = '';
+    hideSuggestions();
+    renderChips();
+  }
+
+  function removeFilterName(name){
+    classNameFilter.delete(name);
+    renderChips();
+  }
+
+  function renderChips(){
+    const box = el('filterChips');
+    box.innerHTML = '';
+    Array.from(classNameFilter).sort((a,b)=> a.localeCompare(b)).forEach(name=>{
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      const label = document.createElement('span');
+      label.textContent = name;
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.textContent = '×';
+      rm.title = 'Remove';
+      rm.addEventListener('click', ()=> removeFilterName(name));
+      chip.appendChild(label);
+      chip.appendChild(rm);
+      box.appendChild(chip);
+    });
+    const n = objectsMatchingFilter().length;
+    if (classNameFilter.size > 0){
+      el('exportBtn').textContent = `Export selection JSON (${n.toLocaleString()})`;
+    } else {
+      el('exportBtn').textContent = 'Export selection JSON';
+    }
+    el('exportBtn').disabled = n === 0;
+    updateButtonGlow();
+  }
+
+  function hideSuggestions(){
+    const s = el('filterSuggest');
+    s.style.display = 'none';
+    s.innerHTML = '';
+    filterHiIndex = -1;
+  }
+
+  function showSuggestions(){
+    const q = el('filterInput').value.trim().toLowerCase();
+    const pool = availableClassNames.filter(n => !classNameFilter.has(n));
+    const matches = (q ? pool.filter(n => n.toLowerCase().includes(q)) : pool).slice(0, 50);
+
+    const s = el('filterSuggest');
+    s.innerHTML = '';
+    filterHiIndex = -1;
+    if (matches.length === 0){
+      const d = document.createElement('div');
+      d.className = 'empty';
+      d.textContent = pool.length === 0 ? 'All classnames added.' : 'No matches.';
+      s.appendChild(d);
+      s.style.display = 'block';
+      return;
+    }
+    matches.forEach(name=>{
+      const d = document.createElement('div');
+      d.textContent = name;
+      d.addEventListener('mousedown', (e)=>{ e.preventDefault(); addFilterName(name); });
+      s.appendChild(d);
+    });
+    s.style.display = 'block';
+  }
+
+  el('filterInput').addEventListener('input', showSuggestions);
+  el('filterInput').addEventListener('focus', showSuggestions);
+  el('filterInput').addEventListener('blur', ()=> setTimeout(hideSuggestions, 120));
+  el('filterInput').addEventListener('keydown', (e)=>{
+    const s = el('filterSuggest');
+    const items = Array.from(s.querySelectorAll('div:not(.empty)'));
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      if (!items.length) return;
+      filterHiIndex = (filterHiIndex + 1) % items.length;
+      items.forEach((it,i)=> it.classList.toggle('hi', i === filterHiIndex));
+      items[filterHiIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      if (!items.length) return;
+      filterHiIndex = (filterHiIndex - 1 + items.length) % items.length;
+      items.forEach((it,i)=> it.classList.toggle('hi', i === filterHiIndex));
+      items[filterHiIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      if (filterHiIndex >= 0 && items[filterHiIndex]){
+        addFilterName(items[filterHiIndex].textContent);
+      } else {
+        const q = el('filterInput').value.trim();
+        const exact = availableClassNames.find(n => n.toLowerCase() === q.toLowerCase());
+        if (exact) addFilterName(exact);
+      }
+    } else if (e.key === 'Escape'){
+      hideSuggestions();
+    }
+  });
+
+  el('clearFilterBtn').addEventListener('click', ()=>{
+    classNameFilter.clear();
+    renderChips();
+  });
 
   // ---------- export ----------
   el('exportBtn').addEventListener('click', ()=>{
-    if (!selectedObjects.length) return;
-    const payload = { Objects: selectedObjects };
+    const exportObjects = objectsMatchingFilter();
+    if (!exportObjects.length) return;
+    const payload = { Objects: exportObjects };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -659,6 +1043,18 @@
   // ---------- wiring ----------
   el('modebtnPanel').addEventListener('click', ()=> setSelecting(!selecting));
   el('clearBtn').addEventListener('click', clearSelection);
+
+  // double-click any section header to collapse / expand it
+  document.querySelectorAll('#panel .section').forEach(sec=>{
+    const head = sec.querySelector(':scope > h2, :scope > .section-head');
+    if (!head) return;
+    head.title = 'Double-click to collapse / expand';
+    head.addEventListener('dblclick', ()=>{
+      sec.classList.toggle('collapsed');
+      const sel = window.getSelection && window.getSelection();
+      if (sel) sel.removeAllRanges();
+    });
+  });
 
   initMap();
 })();
